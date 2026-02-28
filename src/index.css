@@ -163,7 +163,7 @@ html, body, #root {
   font-weight: 400;
   letter-spacing: 0.02em;
   color: rgba(255,255,255,0.85);
-  z-index: 2;
+  z-index: 5;
   pointer-events: none;
 }
 
@@ -190,7 +190,10 @@ html, body, #root {
   pointer-events: none;
 }
 
-/* --- 単一プレーヤーオーバーレイ --- */
+/* --- 単一プレーヤーオーバーレイ ---
+   iframeを拡大せず、正確に16:9コンテナに収める。
+   background: #f7efe3 でYouTubeプレーヤーの黒背景が
+   見えないようにする */
 .player-overlay {
   position: absolute;
   top: 50%;
@@ -200,16 +203,12 @@ html, body, #root {
   aspect-ratio: 16 / 9;
   z-index: 1;
   overflow: hidden;
-  border-top: 3px solid #f7efe3;
-  border-bottom: 3px solid #f7efe3;
+  background: #f7efe3;
 }
 
 .player-overlay > div {
   position: absolute;
-  top: -200px;
-  left: 0;
-  width: 100%;
-  height: calc(100% + 400px);
+  inset: 0;
 }
 
 .player-overlay iframe {

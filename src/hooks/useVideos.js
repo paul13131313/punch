@@ -6,6 +6,7 @@ const QUERIES = [
 ];
 
 const CACHE_KEY = "punch_videos_cache";
+const CACHE_TTL = 30 * 60 * 1000; /* 30分でキャッシュ失効 */
 
 function shuffle(arr) {
   const a = [...arr];
@@ -16,11 +17,28 @@ function shuffle(arr) {
   return a;
 }
 
+/* videoIdの完全一致 + タイトル類似度による重複排除 */
 function dedup(videos) {
   const seen = new Set();
+  const titles = [];
+
   return videos.filter((v) => {
+    /* videoId重複チェック */
     if (seen.has(v.videoId)) return false;
     seen.add(v.videoId);
+
+    /* タイトル類似チェック: 正規化して比較 */
+    const normalized = v.title
+      .replace(/[【】「」『』（）()\[\]#＃]/g, "")
+      .replace(/\s+/g, "")
+      .slice(0, 20); /* 先頭20文字で比較 */
+
+    for (const t of titles) {
+      if (normalized === t || (normalized.length > 8 && t.includes(normalized.slice(0, 8)))) {
+        return false;
+      }
+    }
+    titles.push(normalized);
     return true;
   });
 }
@@ -63,15 +81,20 @@ export function useVideos() {
 
     try {
       if (!isLoadMore) {
+        /* キャッシュ読み込み（TTL超過していなければ） */
         const cached = sessionStorage.getItem(CACHE_KEY);
         if (cached) {
           const parsed = JSON.parse(cached);
-          setVideos(parsed.videos);
-          pageTokens.current = parsed.pageTokens;
-          setHasMore(parsed.hasMore);
-          setLoading(false);
-          loadingRef.current = false;
-          return;
+          if (parsed.timestamp && Date.now() - parsed.timestamp < CACHE_TTL) {
+            setVideos(parsed.videos);
+            pageTokens.current = parsed.pageTokens;
+            setHasMore(parsed.hasMore);
+            setLoading(false);
+            loadingRef.current = false;
+            return;
+          }
+          /* TTL切れ → キャッシュ破棄 */
+          sessionStorage.removeItem(CACHE_KEY);
         }
       }
 
@@ -102,6 +125,7 @@ export function useVideos() {
             videos: all,
             pageTokens: pageTokens.current,
             hasMore: anyHasMore,
+            timestamp: Date.now(),
           })
         );
         return all;
@@ -133,6 +157,7 @@ export function useVideos() {
           videos: filtered,
           pageTokens: pageTokens.current,
           hasMore,
+          timestamp: Date.now(),
         })
       );
       return filtered;

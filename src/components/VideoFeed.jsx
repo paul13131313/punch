@@ -53,11 +53,17 @@ export default function VideoFeed() {
   const pendingStartRef = useRef(false);
   const activeIndexRef = useRef(0);
 
-  /* activeIndexをrefにも同期（useEffect内から最新値を参照するため） */
+  /* activeIndexをrefにも同期 */
   activeIndexRef.current = activeIndex;
 
-  /* ─── IntersectionObserver: アクティブ動画検出 ─── */
+  /* ─── スクロールベースのアクティブ動画検出 ───
+     IntersectionObserverだけでは mobile で検知漏れが起きるため、
+     scroll イベントからも算出するハイブリッド方式 */
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    /* --- IntersectionObserver（メイン検知） --- */
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -69,14 +75,37 @@ export default function VideoFeed() {
           }
         });
       },
-      { threshold: 0.6 }
+      {
+        root: container,   /* ★ feedコンテナをrootに指定 */
+        threshold: 0.5,    /* ★ 0.6→0.5に緩和 */
+      }
     );
 
     cardRefs.current.forEach((el) => {
       if (el) observer.observe(el);
     });
 
-    return () => observer.disconnect();
+    /* --- scroll イベント（フォールバック検知） --- */
+    let scrollTimer = null;
+    function handleScroll() {
+      if (scrollTimer) clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        const scrollTop = container.scrollTop;
+        const itemHeight = container.clientHeight;
+        if (itemHeight <= 0) return;
+        const idx = Math.round(scrollTop / itemHeight);
+        const clamped = Math.max(0, Math.min(idx, (videos.length || 1) - 1));
+        setActiveIndex(clamped);
+      }, 150);
+    }
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      container.removeEventListener("scroll", handleScroll);
+      if (scrollTimer) clearTimeout(scrollTimer);
+    };
   }, [videos]);
 
   /* ─── IntersectionObserver: 無限スクロール ─── */
@@ -115,7 +144,7 @@ export default function VideoFeed() {
     removeVideo(videoId);
   }, [removeVideo]);
 
-  /* ─── プレーヤー事前作成（videosが来たら即座に、タップを待たない） ─── */
+  /* ─── プレーヤー事前作成 ─── */
   useEffect(() => {
     if (playerRef.current || videos.length === 0) return;
 
@@ -145,8 +174,8 @@ export default function VideoFeed() {
       new window.YT.Player(playerDiv, {
         videoId: video.videoId,
         playerVars: {
-          autoplay: 0,        // タップまで再生しない
-          mute: 1,            // ブラウザポリシー: 最初はミュート必須
+          autoplay: 0,
+          mute: 1,
           loop: 1,
           playlist: video.videoId,
           controls: 0,
@@ -228,7 +257,7 @@ export default function VideoFeed() {
     /* プレーヤーを新しいカード位置に移動 */
     movePlayerToCard(activeIndex);
 
-    /* 動画を切り替え（ジェスチャー権限が継続しているので自動再生される） */
+    /* 動画を切り替え */
     playerRef.current.loadVideoById({
       videoId: video.videoId,
       startSeconds: 0,
@@ -248,21 +277,18 @@ export default function VideoFeed() {
   }, []);
 
   /*
-   * ★核心: handleStart — タップのジェスチャーコンテキスト内で同期的に再生＋音声ON
-   * setStateやuseEffectを経由しない。これがモバイルで動く唯一の方法。
+   * ★ handleStart — タップのジェスチャーコンテキスト内で同期的に再生＋音声ON
    */
   const handleStart = useCallback(() => {
     if (audioUnlockedRef.current) return;
 
     const player = playerRef.current;
     if (!player) {
-      /* プレーヤーがまだreadyでない → フラグを立てて、onReadyで再生 */
       pendingStartRef.current = true;
       setShowOverlay(false);
       return;
     }
 
-    /* ★ ここが最重要: ユーザータップと同じコールスタック内でAPI呼び出し */
     player.unMute();
     player.setVolume(100);
     player.playVideo();
@@ -271,7 +297,6 @@ export default function VideoFeed() {
     setShowOverlay(false);
     setIsMuted(false);
 
-    /* バッファタイムアウト開始 */
     hasPlayedRef.current = false;
     bufferTimerRef.current = setTimeout(() => {
       if (!hasPlayedRef.current) {
@@ -280,7 +305,7 @@ export default function VideoFeed() {
     }, 8000);
   }, [handleVideoError]);
 
-  /* ─── ミュートトグル（直接プレーヤーAPI呼び出し） ─── */
+  /* ─── ミュートトグル ─── */
   const toggleMute = useCallback((e) => {
     e.stopPropagation();
     const player = playerRef.current;
@@ -347,8 +372,8 @@ export default function VideoFeed() {
           data-index={i}
           ref={setCardRef(i)}
         >
-          <VideoCard video={video} />
           <div className="site-title">PUNCH PUNCH PUNCH</div>
+          <VideoCard video={video} />
         </div>
       ))}
 
