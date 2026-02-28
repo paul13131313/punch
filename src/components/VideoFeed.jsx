@@ -6,6 +6,7 @@ import Spinner from "./Spinner";
 export default function VideoFeed() {
   const { videos, loading, error, hasMore, loadMore, removeVideo } = useVideos();
   const [activeIndex, setActiveIndex] = useState(0);
+  const [muted, setMuted] = useState(true);
   const containerRef = useRef(null);
   const sentinelRef = useRef(null);
   const cardRefs = useRef([]);
@@ -56,6 +57,12 @@ export default function VideoFeed() {
     removeVideo(videoId);
   }, [removeVideo]);
 
+  const handleTapUnmute = useCallback(() => {
+    if (muted) {
+      setMuted(false);
+    }
+  }, [muted]);
+
   if (error) {
     return (
       <div className="feed-message">
@@ -70,7 +77,11 @@ export default function VideoFeed() {
   }
 
   return (
-    <div className="feed" ref={containerRef}>
+    <div className="feed" ref={containerRef} onClick={handleTapUnmute}>
+      {muted && (
+        <div className="tap-to-unmute">タップで音声ON</div>
+      )}
+
       {videos.map((video, i) => (
         <div
           key={video.videoId}
@@ -81,6 +92,7 @@ export default function VideoFeed() {
           <VideoCard
             video={video}
             isActive={i === activeIndex}
+            muted={muted}
             onError={handleVideoError}
           />
         </div>

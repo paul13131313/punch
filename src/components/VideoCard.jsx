@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect } from "react";
 
 let ytApiReady = false;
 let ytApiCallbacks = [];
@@ -30,11 +30,9 @@ function onYTReady(cb) {
   }
 }
 
-export default function VideoCard({ video, isActive, onError }) {
-  const [muted, setMuted] = useState(true);
+export default function VideoCard({ video, isActive, muted, onError }) {
   const playerRef = useRef(null);
   const containerRef = useRef(null);
-  const [playerReady, setPlayerReady] = useState(false);
   const bufferTimerRef = useRef(null);
   const hasPlayedRef = useRef(false);
 
@@ -72,8 +70,6 @@ export default function VideoCard({ video, isActive, onError }) {
         events: {
           onReady: (event) => {
             playerRef.current = event.target;
-            setPlayerReady(true);
-            event.target.mute();
             event.target.playVideo();
 
             bufferTimerRef.current = setTimeout(() => {
@@ -114,35 +110,29 @@ export default function VideoCard({ video, isActive, onError }) {
           playerRef.current.destroy();
         } catch {}
         playerRef.current = null;
-        setPlayerReady(false);
       }
     };
   }, [isActive, video.videoId, onError]);
 
   useEffect(() => {
-    if (!playerReady || !playerRef.current?.playVideo) return;
+    if (!playerRef.current?.playVideo) return;
 
     if (isActive) {
       playerRef.current.playVideo();
     } else {
       playerRef.current.pauseVideo();
     }
-  }, [isActive, playerReady]);
+  }, [isActive]);
 
   useEffect(() => {
-    if (!playerReady || !playerRef.current?.mute) return;
+    if (!playerRef.current?.mute) return;
 
     if (muted) {
       playerRef.current.mute();
     } else {
       playerRef.current.unMute();
     }
-  }, [muted, playerReady]);
-
-  const handleMuteToggle = useCallback((e) => {
-    e.stopPropagation();
-    setMuted((prev) => !prev);
-  }, []);
+  }, [muted]);
 
   return (
     <div className="video-card">
@@ -150,7 +140,7 @@ export default function VideoCard({ video, isActive, onError }) {
         <img
           className="video-thumbnail"
           src={video.thumbnail}
-          alt={video.title}
+          alt=""
           loading="lazy"
         />
       )}
@@ -160,16 +150,6 @@ export default function VideoCard({ video, isActive, onError }) {
           <div ref={containerRef} className="video-player-container" />
         </div>
       )}
-
-      <div className="video-overlay">
-        <div className="video-info">
-          <p className="video-title">{video.title}</p>
-          <p className="video-channel">{video.channelTitle}</p>
-        </div>
-        <button className="mute-btn" onClick={handleMuteToggle}>
-          {muted ? "🔇" : "🔊"}
-        </button>
-      </div>
     </div>
   );
 }
