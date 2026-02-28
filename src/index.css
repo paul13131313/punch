@@ -26,7 +26,7 @@ html, body, #root {
   margin: 0 auto;
 }
 
-/* --- タップして再生オーバーレイ --- */
+/* ─── タップして再生オーバーレイ ─── */
 .tap-to-start {
   position: fixed;
   inset: 0;
@@ -68,7 +68,7 @@ html, body, #root {
   50% { transform: scale(1.06); }
 }
 
-/* --- 音声ON/OFFボタン（下部） --- */
+/* ─── 音声ON/OFFボタン ─── */
 .mute-btn {
   position: fixed;
   bottom: 32px;
@@ -108,6 +108,7 @@ html, body, #root {
   pointer-events: none;
 }
 
+/* ─── フィード（スクロールコンテナ） ─── */
 .feed {
   width: 100%;
   height: 100%;
@@ -127,6 +128,17 @@ html, body, #root {
   scroll-snap-align: start;
   scroll-snap-stop: always;
   position: relative;
+}
+
+.feed-item-card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f7efe3;
+  overflow: hidden;
 }
 
 .feed-message {
@@ -163,20 +175,8 @@ html, body, #root {
   font-weight: 400;
   letter-spacing: 0.02em;
   color: rgba(255,255,255,0.85);
-  z-index: 5;
+  z-index: 30;
   pointer-events: none;
-}
-
-.video-card {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f7efe3;
-  cursor: pointer;
-  overflow: hidden;
 }
 
 .video-thumbnail {
@@ -190,34 +190,68 @@ html, body, #root {
   pointer-events: none;
 }
 
-/* --- 単一プレーヤーオーバーレイ ---
-   iframeを拡大せず、正確に16:9コンテナに収める。
-   background: #f7efe3 でYouTubeプレーヤーの黒背景が
-   見えないようにする */
-.player-overlay {
+/* ─── プレーヤープール（固定位置、DOMは動かない） ─── */
+.player-pool {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.player-slot {
   position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  transform: translateY(-50%);
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 480px;
+  height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 0;
+  transition: opacity 0.2s ease;
+}
+
+.player-slot--active {
+  opacity: 1;
+  z-index: 20;
+  pointer-events: auto;
+}
+
+.player-slot--preloading {
+  opacity: 0;
+  z-index: 10;
+}
+
+.player-slot--idle {
+  opacity: 0;
+  z-index: 0;
+}
+
+/* ★ 黒帯対策: iframeを5%拡大してoverflow:hiddenでクロップ
+   YouTubeプレーヤーの内部黒背景が端に見える問題を解消 */
+.player-slot-inner {
+  position: relative;
+  width: 100%;
   aspect-ratio: 16 / 9;
-  z-index: 1;
   overflow: hidden;
   background: #f7efe3;
 }
 
-.player-overlay > div {
+.player-slot-inner iframe {
   position: absolute;
-  inset: 0;
-}
-
-.player-overlay iframe {
-  width: 100%;
-  height: 100%;
+  top: -2.5%;
+  left: -2.5%;
+  width: 105%;
+  height: 105%;
   border: none;
   pointer-events: none;
 }
 
+/* ─── スピナー ─── */
 .spinner-container {
   display: flex;
   align-items: center;

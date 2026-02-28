@@ -1,12 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
-const QUERIES = [
-  "パンチくん 市川市動植物園",
-  "パンチ 子ザル ぬいぐるみ",
-];
+/* 1つのクエリに統合して重複を根本排除 */
+const QUERY = "パンチくん 市川市動植物園 子ザル";
 
-const CACHE_KEY = "punch_videos_cache";
-const CACHE_TTL = 30 * 60 * 1000; /* 30分でキャッシュ失効 */
+const CACHE_KEY = "punch_videos_v2";
+const CACHE_TTL = 30 * 60 * 1000; /* 30分 */
 
 function shuffle(arr) {
   const a = [...arr];
@@ -17,28 +15,12 @@ function shuffle(arr) {
   return a;
 }
 
-/* videoIdの完全一致 + タイトル類似度による重複排除 */
+/* videoIdのSetで重複排除（単一クエリなのでこれで十分） */
 function dedup(videos) {
   const seen = new Set();
-  const titles = [];
-
   return videos.filter((v) => {
-    /* videoId重複チェック */
     if (seen.has(v.videoId)) return false;
     seen.add(v.videoId);
-
-    /* タイトル類似チェック: 正規化して比較 */
-    const normalized = v.title
-      .replace(/[【】「」『』（）()\[\]#＃]/g, "")
-      .replace(/\s+/g, "")
-      .slice(0, 20); /* 先頭20文字で比較 */
-
-    for (const t of titles) {
-      if (normalized === t || (normalized.length > 8 && t.includes(normalized.slice(0, 8)))) {
-        return false;
-      }
-    }
-    titles.push(normalized);
     return true;
   });
 }
@@ -59,11 +41,11 @@ export function useVideos() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [hasMore, setHasMore] = useState(true);
-  const pageTokens = useRef({});
+  const pageTokenRef = useRef(null);
   const loadingRef = useRef(false);
 
-  const fetchQuery = useCallback(async (q, pageToken) => {
-    const params = new URLSearchParams({ q });
+  const fetchVideos = useCallback(async (pageToken) => {
+    const params = new URLSearchParams({ q: QUERY });
     if (pageToken) params.set("pageToken", pageToken);
     const res = await fetch(`/api/videos?${params}`);
     if (!res.ok) {
@@ -80,51 +62,39 @@ export function useVideos() {
     setError(null);
 
     try {
+      /* キャッシュ読み込み（初回のみ） */
       if (!isLoadMore) {
-        /* キャッシュ読み込み（TTL超過していなければ） */
         const cached = sessionStorage.getItem(CACHE_KEY);
         if (cached) {
           const parsed = JSON.parse(cached);
           if (parsed.timestamp && Date.now() - parsed.timestamp < CACHE_TTL) {
             setVideos(parsed.videos);
-            pageTokens.current = parsed.pageTokens;
+            pageTokenRef.current = parsed.pageToken;
             setHasMore(parsed.hasMore);
             setLoading(false);
             loadingRef.current = false;
             return;
           }
-          /* TTL切れ → キャッシュ破棄 */
           sessionStorage.removeItem(CACHE_KEY);
         }
       }
 
-      const results = await Promise.all(
-        QUERIES.map((q) => fetchQuery(q, isLoadMore ? pageTokens.current[q] : undefined))
-      );
+      const data = await fetchVideos(isLoadMore ? pageTokenRef.current : undefined);
+      const parsed = parseItems(data.items || []);
+      const newVideos = shuffle(parsed);
 
-      const newVideos = [];
-      let anyHasMore = false;
-
-      results.forEach((data, i) => {
-        const parsed = parseItems(data.items || []);
-        newVideos.push(...parsed);
-        if (data.nextPageToken) {
-          pageTokens.current[QUERIES[i]] = data.nextPageToken;
-          anyHasMore = true;
-        }
-      });
-
-      const merged = dedup(shuffle(newVideos));
-      setHasMore(anyHasMore);
+      pageTokenRef.current = data.nextPageToken || null;
+      const moreAvailable = !!data.nextPageToken;
+      setHasMore(moreAvailable);
 
       setVideos((prev) => {
-        const all = isLoadMore ? dedup([...prev, ...merged]) : merged;
+        const all = isLoadMore ? dedup([...prev, ...newVideos]) : dedup(newVideos);
         sessionStorage.setItem(
           CACHE_KEY,
           JSON.stringify({
             videos: all,
-            pageTokens: pageTokens.current,
-            hasMore: anyHasMore,
+            pageToken: pageTokenRef.current,
+            hasMore: moreAvailable,
             timestamp: Date.now(),
           })
         );
@@ -136,7 +106,7 @@ export function useVideos() {
       setLoading(false);
       loadingRef.current = false;
     }
-  }, [fetchQuery]);
+  }, [fetchVideos]);
 
   useEffect(() => {
     loadVideos(false);
@@ -155,7 +125,7 @@ export function useVideos() {
         CACHE_KEY,
         JSON.stringify({
           videos: filtered,
-          pageTokens: pageTokens.current,
+          pageToken: pageTokenRef.current,
           hasMore,
           timestamp: Date.now(),
         })

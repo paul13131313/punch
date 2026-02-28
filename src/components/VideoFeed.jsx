@@ -1,122 +1,41 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useVideos } from "../hooks/useVideos";
-import VideoCard from "./VideoCard";
+import { useActiveIndex } from "../hooks/useActiveIndex";
+import { usePlayerPool } from "../hooks/usePlayerPool";
+import PlayerSlot from "./PlayerSlot";
+import FeedItem from "./FeedItem";
 import Spinner from "./Spinner";
 
-/* ─── YouTube IFrame API ローダー ─── */
-let ytApiReady = false;
-let ytApiCallbacks = [];
-
-function loadYTApi() {
-  if (window.YT?.Player) {
-    ytApiReady = true;
-    return;
-  }
-  if (document.querySelector('script[src*="youtube.com/iframe_api"]')) return;
-
-  window.onYouTubeIframeAPIReady = () => {
-    ytApiReady = true;
-    ytApiCallbacks.forEach((cb) => cb());
-    ytApiCallbacks = [];
-  };
-
-  const tag = document.createElement("script");
-  tag.src = "https://www.youtube.com/iframe_api";
-  document.head.appendChild(tag);
-}
-
-function onYTReady(cb) {
-  if (ytApiReady) {
-    cb();
-  } else {
-    ytApiCallbacks.push(cb);
-    loadYTApi();
-  }
-}
+const SLOT_IDS = ["yt-slot-0", "yt-slot-1", "yt-slot-2"];
 
 export default function VideoFeed() {
   const { videos, loading, error, hasMore, loadMore, removeVideo } = useVideos();
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [showOverlay, setShowOverlay] = useState(true);
-  const [isMuted, setIsMuted] = useState(true);
   const containerRef = useRef(null);
   const sentinelRef = useRef(null);
-  const cardRefs = useRef([]);
+  const activeIndex = useActiveIndex(containerRef, videos.length);
+  const {
+    slotStates,
+    audioUnlocked,
+    isMuted,
+    startPlayback,
+    toggleMute,
+  } = usePlayerPool(videos, activeIndex, removeVideo);
+  const [showOverlay, setShowOverlay] = useState(true);
 
-  /* 単一プレーヤーの管理 */
-  const playerRef = useRef(null);
-  const playerHostRef = useRef(null);
-  const currentVideoIdRef = useRef(null);
-  const bufferTimerRef = useRef(null);
-  const hasPlayedRef = useRef(false);
-  const audioUnlockedRef = useRef(false);
-  const pendingStartRef = useRef(false);
-  const activeIndexRef = useRef(0);
+  /* ─── タップ: ジェスチャーコンテキスト内で同期実行 ─── */
+  const handleTap = useCallback(() => {
+    if (audioUnlocked) return;
+    startPlayback();
+    setShowOverlay(false);
+  }, [audioUnlocked, startPlayback]);
 
-  /* activeIndexをrefにも同期 */
-  activeIndexRef.current = activeIndex;
-
-  /* ─── スクロールベースのアクティブ動画検出 ───
-     IntersectionObserverだけでは mobile で検知漏れが起きるため、
-     scroll イベントからも算出するハイブリッド方式 */
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    /* --- IntersectionObserver（メイン検知） --- */
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            const idx = Number(entry.target.dataset.index);
-            if (!isNaN(idx)) {
-              setActiveIndex(idx);
-            }
-          }
-        });
-      },
-      {
-        root: container,   /* ★ feedコンテナをrootに指定 */
-        threshold: 0.5,    /* ★ 0.6→0.5に緩和 */
-      }
-    );
-
-    cardRefs.current.forEach((el) => {
-      if (el) observer.observe(el);
-    });
-
-    /* --- scroll イベント（フォールバック検知） --- */
-    let scrollTimer = null;
-    function handleScroll() {
-      if (scrollTimer) clearTimeout(scrollTimer);
-      scrollTimer = setTimeout(() => {
-        const scrollTop = container.scrollTop;
-        const itemHeight = container.clientHeight;
-        if (itemHeight <= 0) return;
-        const idx = Math.round(scrollTop / itemHeight);
-        const clamped = Math.max(0, Math.min(idx, (videos.length || 1) - 1));
-        setActiveIndex(clamped);
-      }, 150);
-    }
-
-    container.addEventListener("scroll", handleScroll, { passive: true });
-
-    return () => {
-      observer.disconnect();
-      container.removeEventListener("scroll", handleScroll);
-      if (scrollTimer) clearTimeout(scrollTimer);
-    };
-  }, [videos]);
-
-  /* ─── IntersectionObserver: 無限スクロール ─── */
+  /* ─── 無限スクロール ─── */
   useEffect(() => {
     if (!sentinelRef.current || !hasMore) return;
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) {
-          loadMore();
-        }
+        if (entry.isIntersecting) loadMore();
       },
       { rootMargin: "600px" }
     );
@@ -125,203 +44,7 @@ export default function VideoFeed() {
     return () => observer.disconnect();
   }, [hasMore, loadMore, videos]);
 
-  /* ─── ヘルパー: プレーヤーをカードに移動 ─── */
-  function movePlayerToCard(index) {
-    const host = playerHostRef.current;
-    if (!host) return;
-
-    const card = cardRefs.current[index];
-    if (!card) return;
-
-    const videoCard = card.querySelector(".video-card");
-    if (videoCard && host.parentElement !== videoCard) {
-      videoCard.appendChild(host);
-    }
-  }
-
-  /* ─── エラーハンドラ ─── */
-  const handleVideoError = useCallback((videoId) => {
-    removeVideo(videoId);
-  }, [removeVideo]);
-
-  /* ─── プレーヤー事前作成 ─── */
-  useEffect(() => {
-    if (playerRef.current || videos.length === 0) return;
-
-    const video = videos[0];
-    if (!video) return;
-
-    /* プレーヤーホスト要素を作成 */
-    const host = document.createElement("div");
-    host.className = "player-overlay";
-    playerHostRef.current = host;
-
-    /* 最初のカードに配置 */
-    const card = cardRefs.current[0];
-    if (card) {
-      const videoCard = card.querySelector(".video-card");
-      if (videoCard) videoCard.appendChild(host);
-    }
-
-    const playerDiv = document.createElement("div");
-    host.appendChild(playerDiv);
-
-    onYTReady(() => {
-      if (playerRef.current) return;
-      currentVideoIdRef.current = video.videoId;
-      hasPlayedRef.current = false;
-
-      new window.YT.Player(playerDiv, {
-        videoId: video.videoId,
-        playerVars: {
-          autoplay: 0,
-          mute: 1,
-          loop: 1,
-          playlist: video.videoId,
-          controls: 0,
-          modestbranding: 1,
-          rel: 0,
-          showinfo: 0,
-          iv_load_policy: 3,
-          fs: 0,
-          disablekb: 1,
-          playsinline: 1,
-        },
-        events: {
-          onReady: (event) => {
-            playerRef.current = event.target;
-
-            /* タップがプレーヤーready前に来た場合 */
-            if (pendingStartRef.current) {
-              pendingStartRef.current = false;
-              event.target.unMute();
-              event.target.setVolume(100);
-              event.target.playVideo();
-              audioUnlockedRef.current = true;
-              setIsMuted(false);
-
-              bufferTimerRef.current = setTimeout(() => {
-                if (!hasPlayedRef.current) {
-                  handleVideoError(currentVideoIdRef.current);
-                }
-              }, 8000);
-            }
-          },
-          onStateChange: (event) => {
-            if (event.data === window.YT.PlayerState.PLAYING) {
-              hasPlayedRef.current = true;
-              if (bufferTimerRef.current) {
-                clearTimeout(bufferTimerRef.current);
-                bufferTimerRef.current = null;
-              }
-            }
-            /* ループ再生 */
-            if (event.data === window.YT.PlayerState.ENDED) {
-              event.target.seekTo(0);
-              event.target.playVideo();
-            }
-          },
-          onError: () => {
-            if (bufferTimerRef.current) {
-              clearTimeout(bufferTimerRef.current);
-              bufferTimerRef.current = null;
-            }
-            handleVideoError(currentVideoIdRef.current);
-          },
-        },
-      });
-    });
-  }, [videos, handleVideoError]);
-
-  /* ─── 動画切り替え（スクロール時） ─── */
-  useEffect(() => {
-    if (!audioUnlockedRef.current || !playerRef.current) return;
-
-    const video = videos[activeIndex];
-    if (!video) return;
-
-    /* 同じ動画なら位置だけ更新 */
-    if (currentVideoIdRef.current === video.videoId) {
-      movePlayerToCard(activeIndex);
-      return;
-    }
-
-    /* バッファタイマーリセット */
-    if (bufferTimerRef.current) {
-      clearTimeout(bufferTimerRef.current);
-      bufferTimerRef.current = null;
-    }
-    hasPlayedRef.current = false;
-    currentVideoIdRef.current = video.videoId;
-
-    /* プレーヤーを新しいカード位置に移動 */
-    movePlayerToCard(activeIndex);
-
-    /* 動画を切り替え */
-    playerRef.current.loadVideoById({
-      videoId: video.videoId,
-      startSeconds: 0,
-    });
-
-    /* バッファタイムアウト */
-    bufferTimerRef.current = setTimeout(() => {
-      if (!hasPlayedRef.current) {
-        handleVideoError(video.videoId);
-      }
-    }, 8000);
-  }, [activeIndex, videos, handleVideoError]);
-
-  /* ─── コールバック ─── */
-  const setCardRef = useCallback((idx) => (el) => {
-    cardRefs.current[idx] = el;
-  }, []);
-
-  /*
-   * ★ handleStart — タップのジェスチャーコンテキスト内で同期的に再生＋音声ON
-   */
-  const handleStart = useCallback(() => {
-    if (audioUnlockedRef.current) return;
-
-    const player = playerRef.current;
-    if (!player) {
-      pendingStartRef.current = true;
-      setShowOverlay(false);
-      return;
-    }
-
-    player.unMute();
-    player.setVolume(100);
-    player.playVideo();
-
-    audioUnlockedRef.current = true;
-    setShowOverlay(false);
-    setIsMuted(false);
-
-    hasPlayedRef.current = false;
-    bufferTimerRef.current = setTimeout(() => {
-      if (!hasPlayedRef.current) {
-        handleVideoError(currentVideoIdRef.current);
-      }
-    }, 8000);
-  }, [handleVideoError]);
-
-  /* ─── ミュートトグル ─── */
-  const toggleMute = useCallback((e) => {
-    e.stopPropagation();
-    const player = playerRef.current;
-    if (!player) return;
-
-    if (player.isMuted()) {
-      player.unMute();
-      player.setVolume(100);
-      setIsMuted(false);
-    } else {
-      player.mute();
-      setIsMuted(true);
-    }
-  }, []);
-
-  /* ─── レンダリング ─── */
+  /* ─── エラー / ローディング ─── */
   if (error) {
     return (
       <div className="feed-message">
@@ -336,7 +59,8 @@ export default function VideoFeed() {
   }
 
   return (
-    <div className="feed" ref={containerRef} onClick={handleStart}>
+    <div className="feed" ref={containerRef} onClick={handleTap}>
+      {/* タップして再生オーバーレイ */}
       {showOverlay && videos.length > 0 && (
         <div className="tap-to-start">
           <div className="tap-to-start-inner">
@@ -346,7 +70,8 @@ export default function VideoFeed() {
         </div>
       )}
 
-      {audioUnlockedRef.current && (
+      {/* 音声ボタン */}
+      {audioUnlocked && (
         <button
           className={`mute-btn ${isMuted ? "is-muted" : "is-unmuted"}`}
           onClick={toggleMute}
@@ -365,18 +90,19 @@ export default function VideoFeed() {
         </button>
       )}
 
+      {/* ★ 固定位置プレーヤースロット（DOMは動かない） */}
+      <div className="player-pool">
+        {SLOT_IDS.map((id, i) => (
+          <PlayerSlot key={id} id={id} state={slotStates[i]} />
+        ))}
+      </div>
+
+      {/* フィードアイテム（サムネイルのみ） */}
       {videos.map((video, i) => (
-        <div
-          key={video.videoId}
-          className="feed-item"
-          data-index={i}
-          ref={setCardRef(i)}
-        >
-          <div className="site-title">PUNCH PUNCH PUNCH</div>
-          <VideoCard video={video} />
-        </div>
+        <FeedItem key={video.videoId} video={video} index={i} />
       ))}
 
+      {/* 無限スクロールセンチネル */}
       {hasMore && (
         <div ref={sentinelRef} className="feed-sentinel">
           {loading && <Spinner />}
