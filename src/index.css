@@ -7,7 +7,7 @@
 html, body, #root {
   width: 100%;
   height: 100%;
-  background: #fff;
+  background: #f7efe3;
   color: #333;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   overflow: hidden;
@@ -100,22 +100,9 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fff;
+  background: #f7efe3;
   cursor: pointer;
   overflow: hidden;
-}
-
-.video-bg-blur {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  filter: blur(30px) brightness(1.1) saturate(0.8);
-  transform: scale(1.3);
-  pointer-events: none;
-  z-index: 0;
 }
 
 .video-thumbnail {
@@ -127,7 +114,6 @@ html, body, #root {
   height: auto;
   object-fit: cover;
   pointer-events: none;
-  z-index: 1;
 }
 
 .video-iframe-wrapper {
@@ -139,20 +125,6 @@ html, body, #root {
   aspect-ratio: 16 / 9;
   z-index: 1;
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    transparent 0%,
-    black 8%,
-    black 92%,
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0%,
-    black 8%,
-    black 92%,
-    transparent 100%
-  );
 }
 
 .video-player-container {
@@ -169,7 +141,6 @@ html, body, #root {
   border: none;
   pointer-events: none;
 }
-
 
 .spinner-container {
   display: flex;
