@@ -37,18 +37,24 @@ function onYTReady(cb) {
 export default function VideoFeed() {
   const { videos, loading, error, hasMore, loadMore, removeVideo } = useVideos();
   const [activeIndex, setActiveIndex] = useState(0);
-  const [muted, setMuted] = useState(true);
-  const [started, setStarted] = useState(false);
+  const [showOverlay, setShowOverlay] = useState(true);
+  const [isMuted, setIsMuted] = useState(true);
   const containerRef = useRef(null);
   const sentinelRef = useRef(null);
   const cardRefs = useRef([]);
 
   /* 単一プレーヤーの管理 */
   const playerRef = useRef(null);
-  const playerHostRef = useRef(null);       // プレーヤーiframeの親div
+  const playerHostRef = useRef(null);
   const currentVideoIdRef = useRef(null);
   const bufferTimerRef = useRef(null);
   const hasPlayedRef = useRef(false);
+  const audioUnlockedRef = useRef(false);
+  const pendingStartRef = useRef(false);
+  const activeIndexRef = useRef(0);
+
+  /* activeIndexをrefにも同期（useEffect内から最新値を参照するため） */
+  activeIndexRef.current = activeIndex;
 
   /* ─── IntersectionObserver: アクティブ動画検出 ─── */
   useEffect(() => {
@@ -90,11 +96,30 @@ export default function VideoFeed() {
     return () => observer.disconnect();
   }, [hasMore, loadMore, videos]);
 
-  /* ─── プレーヤー初期化（1回だけ） ─── */
-  useEffect(() => {
-    if (!started || playerRef.current) return;
+  /* ─── ヘルパー: プレーヤーをカードに移動 ─── */
+  function movePlayerToCard(index) {
+    const host = playerHostRef.current;
+    if (!host) return;
 
-    const video = videos[activeIndex];
+    const card = cardRefs.current[index];
+    if (!card) return;
+
+    const videoCard = card.querySelector(".video-card");
+    if (videoCard && host.parentElement !== videoCard) {
+      videoCard.appendChild(host);
+    }
+  }
+
+  /* ─── エラーハンドラ ─── */
+  const handleVideoError = useCallback((videoId) => {
+    removeVideo(videoId);
+  }, [removeVideo]);
+
+  /* ─── プレーヤー事前作成（videosが来たら即座に、タップを待たない） ─── */
+  useEffect(() => {
+    if (playerRef.current || videos.length === 0) return;
+
+    const video = videos[0];
     if (!video) return;
 
     /* プレーヤーホスト要素を作成 */
@@ -102,8 +127,8 @@ export default function VideoFeed() {
     host.className = "player-overlay";
     playerHostRef.current = host;
 
-    /* アクティブなカードに配置 */
-    const card = cardRefs.current[activeIndex];
+    /* 最初のカードに配置 */
+    const card = cardRefs.current[0];
     if (card) {
       const videoCard = card.querySelector(".video-card");
       if (videoCard) videoCard.appendChild(host);
@@ -113,14 +138,15 @@ export default function VideoFeed() {
     host.appendChild(playerDiv);
 
     onYTReady(() => {
+      if (playerRef.current) return;
       currentVideoIdRef.current = video.videoId;
       hasPlayedRef.current = false;
 
-      const player = new window.YT.Player(playerDiv, {
+      new window.YT.Player(playerDiv, {
         videoId: video.videoId,
         playerVars: {
-          autoplay: 1,
-          mute: 1,
+          autoplay: 0,        // タップまで再生しない
+          mute: 1,            // ブラウザポリシー: 最初はミュート必須
           loop: 1,
           playlist: video.videoId,
           controls: 0,
@@ -135,14 +161,22 @@ export default function VideoFeed() {
         events: {
           onReady: (event) => {
             playerRef.current = event.target;
-            event.target.mute();
-            event.target.playVideo();
 
-            bufferTimerRef.current = setTimeout(() => {
-              if (!hasPlayedRef.current) {
-                handleVideoError(currentVideoIdRef.current);
-              }
-            }, 8000);
+            /* タップがプレーヤーready前に来た場合 */
+            if (pendingStartRef.current) {
+              pendingStartRef.current = false;
+              event.target.unMute();
+              event.target.setVolume(100);
+              event.target.playVideo();
+              audioUnlockedRef.current = true;
+              setIsMuted(false);
+
+              bufferTimerRef.current = setTimeout(() => {
+                if (!hasPlayedRef.current) {
+                  handleVideoError(currentVideoIdRef.current);
+                }
+              }, 8000);
+            }
           },
           onStateChange: (event) => {
             if (event.data === window.YT.PlayerState.PLAYING) {
@@ -152,7 +186,7 @@ export default function VideoFeed() {
                 bufferTimerRef.current = null;
               }
             }
-            /* ループ再生: 動画が終了したら先頭に戻す */
+            /* ループ再生 */
             if (event.data === window.YT.PlayerState.ENDED) {
               event.target.seekTo(0);
               event.target.playVideo();
@@ -168,18 +202,17 @@ export default function VideoFeed() {
         },
       });
     });
-  }, [started, videos, activeIndex]);
+  }, [videos, handleVideoError]);
 
-  /* ─── 動画切り替え（loadVideoById） ─── */
+  /* ─── 動画切り替え（スクロール時） ─── */
   useEffect(() => {
-    if (!started || !playerRef.current) return;
+    if (!audioUnlockedRef.current || !playerRef.current) return;
 
     const video = videos[activeIndex];
     if (!video) return;
 
-    /* 同じ動画なら何もしない */
+    /* 同じ動画なら位置だけ更新 */
     if (currentVideoIdRef.current === video.videoId) {
-      /* ただしプレーヤーの位置は更新 */
       movePlayerToCard(activeIndex);
       return;
     }
@@ -195,18 +228,11 @@ export default function VideoFeed() {
     /* プレーヤーを新しいカード位置に移動 */
     movePlayerToCard(activeIndex);
 
-    /* 動画を切り替え */
+    /* 動画を切り替え（ジェスチャー権限が継続しているので自動再生される） */
     playerRef.current.loadVideoById({
       videoId: video.videoId,
       startSeconds: 0,
     });
-
-    /* ミュート状態を維持 */
-    if (muted) {
-      playerRef.current.mute();
-    } else {
-      playerRef.current.unMute();
-    }
 
     /* バッファタイムアウト */
     bufferTimerRef.current = setTimeout(() => {
@@ -214,51 +240,60 @@ export default function VideoFeed() {
         handleVideoError(video.videoId);
       }
     }, 8000);
-  }, [activeIndex, started, videos]);
-
-  /* ─── ミュート切り替え反映 ─── */
-  useEffect(() => {
-    if (!playerRef.current?.mute) return;
-
-    if (muted) {
-      playerRef.current.mute();
-    } else {
-      playerRef.current.unMute();
-    }
-  }, [muted]);
-
-  /* ─── ヘルパー: プレーヤーをカードに移動 ─── */
-  function movePlayerToCard(index) {
-    const host = playerHostRef.current;
-    if (!host) return;
-
-    const card = cardRefs.current[index];
-    if (!card) return;
-
-    const videoCard = card.querySelector(".video-card");
-    if (videoCard && host.parentElement !== videoCard) {
-      videoCard.appendChild(host);
-    }
-  }
+  }, [activeIndex, videos, handleVideoError]);
 
   /* ─── コールバック ─── */
   const setCardRef = useCallback((idx) => (el) => {
     cardRefs.current[idx] = el;
   }, []);
 
-  const handleVideoError = useCallback((videoId) => {
-    removeVideo(videoId);
-  }, [removeVideo]);
-
+  /*
+   * ★核心: handleStart — タップのジェスチャーコンテキスト内で同期的に再生＋音声ON
+   * setStateやuseEffectを経由しない。これがモバイルで動く唯一の方法。
+   */
   const handleStart = useCallback(() => {
-    if (!started) {
-      setStarted(true);
-    }
-  }, [started]);
+    if (audioUnlockedRef.current) return;
 
+    const player = playerRef.current;
+    if (!player) {
+      /* プレーヤーがまだreadyでない → フラグを立てて、onReadyで再生 */
+      pendingStartRef.current = true;
+      setShowOverlay(false);
+      return;
+    }
+
+    /* ★ ここが最重要: ユーザータップと同じコールスタック内でAPI呼び出し */
+    player.unMute();
+    player.setVolume(100);
+    player.playVideo();
+
+    audioUnlockedRef.current = true;
+    setShowOverlay(false);
+    setIsMuted(false);
+
+    /* バッファタイムアウト開始 */
+    hasPlayedRef.current = false;
+    bufferTimerRef.current = setTimeout(() => {
+      if (!hasPlayedRef.current) {
+        handleVideoError(currentVideoIdRef.current);
+      }
+    }, 8000);
+  }, [handleVideoError]);
+
+  /* ─── ミュートトグル（直接プレーヤーAPI呼び出し） ─── */
   const toggleMute = useCallback((e) => {
     e.stopPropagation();
-    setMuted((prev) => !prev);
+    const player = playerRef.current;
+    if (!player) return;
+
+    if (player.isMuted()) {
+      player.unMute();
+      player.setVolume(100);
+      setIsMuted(false);
+    } else {
+      player.mute();
+      setIsMuted(true);
+    }
   }, []);
 
   /* ─── レンダリング ─── */
@@ -277,7 +312,7 @@ export default function VideoFeed() {
 
   return (
     <div className="feed" ref={containerRef} onClick={handleStart}>
-      {!started && videos.length > 0 && (
+      {showOverlay && videos.length > 0 && (
         <div className="tap-to-start">
           <div className="tap-to-start-inner">
             <span className="tap-to-start-emoji">🐵</span>
@@ -286,22 +321,24 @@ export default function VideoFeed() {
         </div>
       )}
 
-      <button
-        className={`mute-btn ${muted ? "is-muted" : "is-unmuted"}`}
-        onClick={toggleMute}
-        aria-label={muted ? "音声ON" : "音声OFF"}
-      >
-        {muted ? (
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-            <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.8 8.8 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"/>
-          </svg>
-        ) : (
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-          </svg>
-        )}
-        <span className="mute-btn-label">{muted ? "音声ON" : "音声OFF"}</span>
-      </button>
+      {audioUnlockedRef.current && (
+        <button
+          className={`mute-btn ${isMuted ? "is-muted" : "is-unmuted"}`}
+          onClick={toggleMute}
+          aria-label={isMuted ? "音声ON" : "音声OFF"}
+        >
+          {isMuted ? (
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.8 8.8 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"/>
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+            </svg>
+          )}
+          <span className="mute-btn-label">{isMuted ? "音声ON" : "音声OFF"}</span>
+        </button>
+      )}
 
       {videos.map((video, i) => (
         <div
