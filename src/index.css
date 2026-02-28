@@ -125,14 +125,16 @@ html, body, #root {
   aspect-ratio: 16 / 9;
   z-index: 1;
   overflow: hidden;
+  border-top: 3px solid #f7efe3;
+  border-bottom: 3px solid #f7efe3;
 }
 
 .video-player-container {
   position: absolute;
-  top: -120px;
+  top: -200px;
   left: 0;
   width: 100%;
-  height: calc(100% + 240px);
+  height: calc(100% + 400px);
 }
 
 .video-player-container iframe {
