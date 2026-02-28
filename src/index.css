@@ -122,13 +122,22 @@ html, body, #root {
   left: 0;
   right: 0;
   bottom: 0;
+  overflow: hidden;
 }
 
-.video-player-container,
+.video-player-container {
+  position: absolute;
+  top: -60px;
+  left: 0;
+  width: 100%;
+  height: calc(100% + 120px);
+}
+
 .video-player-container iframe {
   width: 100%;
   height: 100%;
   border: none;
+  pointer-events: none;
 }
 
 
