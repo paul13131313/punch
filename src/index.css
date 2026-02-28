@@ -105,6 +105,19 @@ html, body, #root {
   overflow: hidden;
 }
 
+.video-bg-blur {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(30px) brightness(0.6);
+  transform: scale(1.2);
+  pointer-events: none;
+  z-index: 0;
+}
+
 .video-thumbnail {
   position: absolute;
   top: 50%;
@@ -114,14 +127,17 @@ html, body, #root {
   height: auto;
   object-fit: cover;
   pointer-events: none;
+  z-index: 1;
 }
 
 .video-iframe-wrapper {
   position: absolute;
-  top: 0;
+  top: 50%;
   left: 0;
   right: 0;
-  bottom: 0;
+  transform: translateY(-50%);
+  aspect-ratio: 16 / 9;
+  z-index: 1;
   overflow: hidden;
 }
 

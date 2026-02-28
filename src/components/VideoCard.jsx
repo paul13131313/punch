@@ -136,6 +136,13 @@ export default function VideoCard({ video, isActive, muted, onError }) {
 
   return (
     <div className="video-card">
+      <img
+        className="video-bg-blur"
+        src={video.thumbnail}
+        alt=""
+        loading="lazy"
+      />
+
       {!isActive && (
         <img
           className="video-thumbnail"
