@@ -1,11 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 /**
  * スクロール位置からアクティブな動画インデックスを検出する。
- * IntersectionObserver（メイン）+ scrollend/scroll（フォールバック）のハイブリッド方式。
+ * isScrolling も返す（スクロール中はプレーヤーを非表示にするため）。
  */
 export function useActiveIndex(containerRef, videoCount) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const [isScrolling, setIsScrolling] = useState(false);
+  const scrollTimerRef = useRef(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -29,22 +31,30 @@ export function useActiveIndex(containerRef, videoCount) {
 
     container.querySelectorAll(".feed-item").forEach((el) => observer.observe(el));
 
-    /* --- scrollend / scroll フォールバック --- */
-    const calcIndex = () => {
-      const h = container.clientHeight;
-      if (h <= 0) return;
-      const idx = Math.round(container.scrollTop / h);
-      setActiveIndex(Math.max(0, Math.min(idx, videoCount - 1)));
+    /* --- スクロール状態の検知 --- */
+    const onScrollStart = () => {
+      setIsScrolling(true);
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     };
 
-    let scrollTimer = null;
+    const onScrollEnd = () => {
+      setIsScrolling(false);
+      /* インデックスも再計算 */
+      const h = container.clientHeight;
+      if (h > 0) {
+        const idx = Math.round(container.scrollTop / h);
+        setActiveIndex(Math.max(0, Math.min(idx, videoCount - 1)));
+      }
+    };
 
     if ("onscrollend" in window) {
-      container.addEventListener("scrollend", calcIndex, { passive: true });
+      container.addEventListener("scroll", onScrollStart, { passive: true });
+      container.addEventListener("scrollend", onScrollEnd, { passive: true });
     } else {
       const handleScroll = () => {
-        if (scrollTimer) clearTimeout(scrollTimer);
-        scrollTimer = setTimeout(calcIndex, 150);
+        onScrollStart();
+        if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+        scrollTimerRef.current = setTimeout(onScrollEnd, 150);
       };
       container.addEventListener("scroll", handleScroll, { passive: true });
     }
@@ -52,11 +62,12 @@ export function useActiveIndex(containerRef, videoCount) {
     return () => {
       observer.disconnect();
       if ("onscrollend" in window) {
-        container.removeEventListener("scrollend", calcIndex);
+        container.removeEventListener("scroll", onScrollStart);
+        container.removeEventListener("scrollend", onScrollEnd);
       }
-      if (scrollTimer) clearTimeout(scrollTimer);
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     };
   }, [containerRef, videoCount]);
 
-  return activeIndex;
+  return { activeIndex, isScrolling };
 }

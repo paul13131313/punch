@@ -7,8 +7,8 @@
 html, body, #root {
   width: 100%;
   height: 100%;
-  background: #f7efe3;
-  color: #333;
+  background: #000;
+  color: #fff;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   overflow: hidden;
   -webkit-overflow-scrolling: touch;
@@ -22,22 +22,34 @@ html, body, #root {
   position: relative;
   width: 100%;
   height: 100%;
-  max-width: 480px;
   margin: 0 auto;
 }
 
-/* ─── タップして再生オーバーレイ ─── */
+/* ─── メイン画面（タップ受付） ─── */
+.app-screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0 auto;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ─── タップして再生ボタン（画面下部に配置、iframeと重ならない） ─── */
 .tap-to-start {
   position: fixed;
-  inset: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 40dvh;
   z-index: 200;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0,0,0,0.35);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .tap-to-start-inner {
@@ -57,10 +69,11 @@ html, body, #root {
   padding: 10px 28px;
   background: rgba(255,255,255,0.95);
   border-radius: 28px;
-  font-size: 15px;
-  font-weight: 700;
+  font-family: 'Playfair Display', serif;
+  font-size: 13px;
+  font-weight: 400;
   color: #333;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
 }
 
 @keyframes tap-bounce {
@@ -68,77 +81,107 @@ html, body, #root {
   50% { transform: scale(1.06); }
 }
 
-/* ─── 音声ON/OFFボタン ─── */
-.mute-btn {
+/* ─── 固定位置プレーヤー ─── */
+.player-fixed {
   position: fixed;
-  bottom: 32px;
-  right: 16px;
-  z-index: 150;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 16px;
-  border: none;
-  border-radius: 24px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s, transform 0.15s;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.mute-btn:active {
-  transform: scale(0.94);
-}
-
-.mute-btn.is-muted {
-  background: rgba(255,255,255,0.92);
-  color: #333;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
-}
-
-.mute-btn.is-unmuted {
-  background: rgba(0,0,0,0.5);
-  color: #fff;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.mute-btn-label {
-  pointer-events: none;
-}
-
-/* ─── フィード（スクロールコンテナ） ─── */
-.feed {
-  width: 100%;
-  height: 100%;
-  overflow-y: scroll;
-  scroll-snap-type: y mandatory;
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-.feed::-webkit-scrollbar {
-  display: none;
-}
-
-.feed-item {
-  width: 100%;
-  height: 100dvh;
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
-  position: relative;
-}
-
-.feed-item-card {
-  position: relative;
-  width: 100%;
-  height: 100%;
+  inset: 0;
+  z-index: 50;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f7efe3;
-  overflow: hidden;
+  pointer-events: none;
+  background: #000;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.player-fixed--visible {
+  opacity: 1;
+}
+
+/* 横動画16:9を画面幅いっぱい＆上下中央配置（黒帯は黒背景に溶け込む） */
+.player-fixed-inner {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+
+.player-fixed-inner iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  pointer-events: none;
+}
+
+/* サイトタイトル（固定位置） */
+.site-title {
+  position: fixed;
+  top: 24px;
+  left: 0;
+  width: 100%;
+  text-align: center;
+  font-family: 'Playfair Display', serif;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: rgba(255,255,255,0.35);
+  z-index: 100;
+  pointer-events: none;
+}
+
+/* ─── 再生中タップエリア（映像の上下の黒帯部分） ─── */
+.tap-area {
+  position: fixed;
+  left: 0;
+  width: 100%;
+  z-index: 100;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tap-area--top {
+  top: 0;
+  height: 30dvh;
+}
+
+.tap-area--bottom {
+  bottom: 0;
+  height: 30dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── TAP → NEXT ヒント ─── */
+.tap-next-hint {
+  font-family: 'Playfair Display', serif;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: rgba(255,255,255,0.35);
+  pointer-events: none;
+}
+
+/* ─── スピナー ─── */
+.spinner-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100dvh;
+  width: 100%;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(255,255,255,0.15);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .feed-message {
@@ -155,120 +198,4 @@ html, body, #root {
 .feed-error-detail {
   font-size: 13px;
   color: #888;
-}
-
-.feed-sentinel {
-  height: 100px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.site-title {
-  position: absolute;
-  top: 24px;
-  left: 0;
-  width: 100%;
-  text-align: center;
-  font-family: 'Playfair Display', serif;
-  font-size: 11px;
-  font-weight: 400;
-  letter-spacing: 0.02em;
-  color: rgba(255,255,255,0.85);
-  z-index: 30;
-  pointer-events: none;
-}
-
-.video-thumbnail {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 100%;
-  height: auto;
-  object-fit: cover;
-  pointer-events: none;
-}
-
-/* ─── プレーヤープール（固定位置、DOMは動かない） ─── */
-.player-pool {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 20;
-}
-
-.player-slot {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 100%;
-  max-width: 480px;
-  height: 100dvh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  opacity: 0;
-  z-index: 0;
-  transition: opacity 0.2s ease;
-}
-
-.player-slot--active {
-  opacity: 1;
-  z-index: 20;
-  pointer-events: auto;
-}
-
-.player-slot--preloading {
-  opacity: 0;
-  z-index: 10;
-}
-
-.player-slot--idle {
-  opacity: 0;
-  z-index: 0;
-}
-
-/* ★ 黒帯対策: iframeを5%拡大してoverflow:hiddenでクロップ
-   YouTubeプレーヤーの内部黒背景が端に見える問題を解消 */
-.player-slot-inner {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  background: #f7efe3;
-}
-
-.player-slot-inner iframe {
-  position: absolute;
-  top: -2.5%;
-  left: -2.5%;
-  width: 105%;
-  height: 105%;
-  border: none;
-  pointer-events: none;
-}
-
-/* ─── スピナー ─── */
-.spinner-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100dvh;
-  width: 100%;
-}
-
-.spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid rgba(0,0,0,0.1);
-  border-top-color: #333;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
